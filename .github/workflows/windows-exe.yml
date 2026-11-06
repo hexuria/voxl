@@ -1,0 +1,63 @@
+name: Windows exe
+
+on:
+  push:
+    branches: [windows-exe]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: voxl.exe ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+            triplet: x64-windows-static-md
+          - arch: arm64
+            runner: windows-11-arm
+            triplet: arm64-windows-static-md
+    env:
+      VCPKGRS_TRIPLET: ${{ matrix.triplet }}
+      LIBCLANG_PATH: C:\Program Files\LLVM\bin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.93.0'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: LLVM for bindgen
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files\LLVM\bin\libclang.dll')) {
+            $url = 'https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/LLVM-20.1.8-woa64.exe'
+            Invoke-WebRequest $url -OutFile llvm.exe
+            Start-Process .\llvm.exe -ArgumentList '/S' -Wait
+          }
+          Test-Path 'C:\Program Files\LLVM\bin\libclang.dll'
+      - name: Native libraries (vcpkg) and esbuild
+        shell: pwsh
+        run: |
+          $root = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $root -or -not (Test-Path "$root\vcpkg.exe")) {
+            $root = 'C:\vcpkg-local'
+            git clone --depth 1 https://github.com/microsoft/vcpkg $root
+            & "$root\bootstrap-vcpkg.bat" -disableMetrics
+          }
+          & "$root\vcpkg.exe" install x264 libyuv opus --triplet $env:VCPKGRS_TRIPLET
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "VCPKG_ROOT=$root" >> $env:GITHUB_ENV
+          npm install -g esbuild
+      - name: Build
+        run: cargo build --release --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voxl-${{ matrix.arch }}
+          path: target/release/voxl.exe
+          if-no-files-found: error
