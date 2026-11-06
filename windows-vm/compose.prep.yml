@@ -1,0 +1,29 @@
+# Builds the unattended Windows 11 ARM install image only. The container has no
+# KVM on this Mac, so stop it once it logs "Booting": QEMU on macOS runs the VM.
+# /storage is a named volume because dockur's driver step needs to delete
+# read-only folders, which a macOS bind mount refuses. Docker's data folder is
+# on /Volumes/goldcoders, so the volume stays on this drive.
+services:
+  windows-prep:
+    image: dockurr/windows-arm
+    container_name: windows-prep
+    environment:
+      KVM: "N"
+      RAM_SIZE: "2G"
+      CPU_CORES: "2"
+      DISK_SIZE: "96G"
+    devices:
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - 127.0.0.1:8006:8006
+    volumes:
+      - windows-prep-storage:/storage
+      - ./oem:/oem
+      - ./iso/win11arm64.iso:/custom.iso:ro
+    restart: "no"
+    stop_grace_period: 10s
+volumes:
+  windows-prep-storage:
+    name: windows-prep-storage
